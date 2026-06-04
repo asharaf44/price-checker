@@ -3,6 +3,10 @@ from typing import Annotated
 from pydantic import BaseModel, StringConstraints
 
 Ticker = Annotated[str, StringConstraints(to_upper=True, strip_whitespace=True, pattern=r"^[A-Za-z0-9.]{1,10}$")]
+# Free-form user input (a ticker, company name, or typo) — resolved to a real Ticker before use.
+Query = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9 .&'-]+$")
+]
 
 
 class Report(BaseModel):
@@ -25,10 +29,12 @@ class HistoryItem(BaseModel):
 class WorkerEvent(BaseModel):
     ticker: Ticker
     key: str
+    force: bool = False
 
 
 class SubmitRequest(BaseModel):
-    ticker: Ticker
+    ticker: Query
+    force: bool = False
 
 
 class SubmitResponse(BaseModel):

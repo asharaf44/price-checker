@@ -26,6 +26,19 @@ class ReportsClient:
             ContentType="application/json",
         )
 
+    def latest_completed(self, ticker: str) -> tuple[str, int] | None:
+        objects = self._s3.list_objects_v2(Bucket=settings.reports_bucket, Prefix=f"{PREFIX}{ticker}__").get(
+            "Contents", []
+        )
+        for obj in sorted(objects, key=lambda o: o["LastModified"], reverse=True):
+            try:
+                data = json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=obj["Key"])["Body"].read())
+            except Exception:
+                continue
+            if data.get("status") == "COMPLETED" and data.get("report"):
+                return data["report"], data.get("createdAt", 0)
+        return None
+
     def _meta(self, key: str) -> tuple[str, str | None]:
         try:
             data = json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=key)["Body"].read())
