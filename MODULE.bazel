@@ -1,0 +1,15 @@
+module(name = "price_checker", version = "1.0.0")
+
+bazel_dep(name = "rules_python", version = "2.0.2")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.13", is_default = True)
+
+# Third-party deps resolved from a pinned lock (regenerate: bazel run //:requirements.update).
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    python_version = "3.13",
+    requirements_lock = "//:requirements_lock.txt",
+)
+use_repo(pip, "pypi")

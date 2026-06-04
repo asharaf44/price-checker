@@ -1,0 +1,46 @@
+# all_requirements = every package in the lock (which is generated from pyproject.toml),
+# so dependencies are declared in ONE place (pyproject.toml) and targets just use them all.
+load("@pypi//:requirements.bzl", "all_requirements")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+py_library(
+    name = "price_checker",
+    srcs = glob(["src/price_checker/**/*.py"]),
+    imports = ["src"],  # makes `import price_checker` resolve
+    visibility = ["//visibility:public"],
+    deps = all_requirements,
+)
+
+# Every tests/**/test_*.py file, passed to pytest as args. Globbed so new test files are
+# picked up automatically — just add a tests/test_*.py and re-run `bazel test //:tests`.
+filegroup(
+    name = "test_files",
+    srcs = glob(["tests/**/test_*.py"]),
+)
+
+# Runs the pytest suite: bazel test  (.bazelrc defaults the target to //...)
+# Not named "tests" — that collides with the tests/ source dir's output path.
+# Depends only on the library, which already pulls in all_requirements (incl. pytest).
+py_test(
+    name = "pytest",
+    size = "small",
+    srcs = ["pytest_main.py", ":test_files"] + glob(
+        ["tests/**/__init__.py", "tests/**/conftest.py"],
+        allow_empty = True,
+    ),
+    args = ["$(locations :test_files)"],
+    # The hermetic sandbox has no AWS config; boto3 clients need a region just to construct.
+    env = {"AWS_DEFAULT_REGION": "us-east-1"},
+    main = "pytest_main.py",
+    deps = [":price_checker"],
+)
+
+# pyproject.toml is the single source of dependencies; this generates the pinned lock from it.
+# Regenerate after editing pyproject.toml: bazel run //:requirements.update
+compile_pip_requirements(
+    name = "requirements",
+    src = "pyproject.toml",
+    extra_args = ["--all-extras"],  # include [project.optional-dependencies].dev (pytest)
+    requirements_txt = "requirements_lock.txt",
+)

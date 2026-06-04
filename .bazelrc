@@ -1,0 +1,8 @@
+# Keep the convenience symlinks (bin/out/testlogs/...) under .bazel/ instead of the repo root.
+build --symlink_prefix=.bazel/
+
+# `bazel test` with no target pattern tests the whole module.
+test //...
+
+# `bazel run` with no target regenerates the pinned lock (requirements_lock.txt).
+run //:requirements.update
