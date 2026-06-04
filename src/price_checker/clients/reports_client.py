@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 
@@ -25,14 +26,23 @@ class ReportsClient:
             ContentType="application/json",
         )
 
+    def _meta(self, key: str) -> tuple[str, str | None]:
+        try:
+            data = json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=key)["Body"].read())
+            return data.get("status", "COMPLETED"), data.get("error")
+        except Exception:
+            return "COMPLETED", None
+
     def list_history(self) -> list[HistoryItem]:
         objects = self._s3.list_objects_v2(Bucket=settings.reports_bucket, Prefix=PREFIX).get("Contents", [])
+        matched = [
+            (obj["Key"], match.group(1), obj["LastModified"].isoformat())
+            for obj in objects
+            if (match := _KEY_RE.fullmatch(obj["Key"]))
+        ]
+        matched.sort(key=lambda x: x[2], reverse=True)
         items = []
-        for obj in objects:
-            match = _KEY_RE.fullmatch(obj["Key"])
-            if match:
-                items.append(
-                    HistoryItem(ticker=match.group(1), path="/" + obj["Key"], date=obj["LastModified"].isoformat())
-                )
-        items.sort(key=lambda i: i.date, reverse=True)
-        return items[:200]
+        for key, ticker, date in matched[:200]:
+            status, error = self._meta(key)
+            items.append(HistoryItem(ticker=ticker, path="/" + key, date=date, status=status, error=error))
+        return items

@@ -18,6 +18,8 @@ class HistoryItem(BaseModel):
     ticker: str
     path: str
     date: str
+    status: str
+    error: str | None = None
 
 
 class WorkerEvent(BaseModel):
