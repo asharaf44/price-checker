@@ -60,7 +60,18 @@ class AnthropicClient:
         )
         text = "".join(b.text for b in msg.content if b.type == "text").strip().upper()
         token = text.split()[0].strip(".,") if text else ""
-        return token if token and token != "NONE" and re.fullmatch(r"[A-Z0-9.]{1,10}", token) else None
+        resolved = token if token and token != "NONE" and re.fullmatch(r"[A-Z0-9.]{1,10}", token) else None
+        logger.info(
+            "ticker resolved",
+            extra={
+                "query": query,
+                "resolved": resolved,
+                "model": RESOLVE_MODEL,
+                "input_tokens": msg.usage.input_tokens,
+                "output_tokens": msg.usage.output_tokens,
+            },
+        )
+        return resolved
 
     def generate_report(self, ticker: str, prior: tuple[str, int] | None = None) -> tuple[str, list[str]]:
         # With a prior report, do a leaner "what's changed" search; from scratch, search wider.
@@ -103,6 +114,7 @@ class AnthropicClient:
             "report generated",
             extra={
                 "ticker": ticker,
+                "model": MODEL,
                 "incremental": prior is not None,
                 "max_uses": max_uses,
                 "input_tokens": in_tok,
