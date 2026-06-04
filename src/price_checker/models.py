@@ -1,4 +1,3 @@
-import uuid
 from typing import Annotated
 
 from pydantic import BaseModel, StringConstraints
@@ -16,15 +15,12 @@ class Report(BaseModel):
 
 
 class HistoryItem(BaseModel):
-    jobId: uuid.UUID
-    # Parsed from S3 keys on read — kept lenient so one odd object can't break list_history().
     ticker: str
     path: str
     date: str
 
 
 class WorkerEvent(BaseModel):
-    jobId: uuid.UUID
     ticker: Ticker
     key: str
 
@@ -34,7 +30,6 @@ class SubmitRequest(BaseModel):
 
 
 class SubmitResponse(BaseModel):
-    jobId: uuid.UUID
     path: str
 
 

@@ -43,9 +43,24 @@ class AnthropicClient:
 
         report = "".join(b.text for b in response.content if b.type == "text")
         sources: list[str] = []
+        links: list[str] = []
+
+        def add(url: str | None, title: str | None) -> None:
+            if url and url not in sources and len(sources) < 10:
+                sources.append(url)
+                links.append(f"- [{title or url}]({url})")
+
+        # web_search_20260209 filters results via code and doesn't attach inline citations, so pull
+        # the sources from the search-result blocks. (Inline citations, when present, are used first.)
         for block in response.content:
             for citation in getattr(block, "citations", None) or []:
-                url = getattr(citation, "url", None)
-                if url and url not in sources:
-                    sources.append(url)
+                add(getattr(citation, "url", None), getattr(citation, "title", None))
+        if not links:
+            for block in response.content:
+                if block.type == "web_search_tool_result":
+                    for result in getattr(block, "content", None) or []:
+                        add(getattr(result, "url", None), getattr(result, "title", None))
+
+        if links:
+            report += "\n\n## Sources\n\n" + "\n".join(links)
         return report, sources

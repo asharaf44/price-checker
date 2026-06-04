@@ -1,5 +1,4 @@
 import time
-import uuid
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -28,18 +27,17 @@ def submit() -> Response:
     except ValidationError:
         raise BadRequestError("invalid ticker")
 
-    job_id = uuid.uuid4()
-    key = reports.key_for(job_id, req.ticker)
+    key = reports.key_for(req.ticker)
     reports.put(key, Report(status="PENDING", ticker=req.ticker, createdAt=int(time.time())))
     lambda_client.invoke(
         FunctionName=app.lambda_context.invoked_function_arn,
         InvocationType="Event",
-        Payload=WorkerEvent(jobId=job_id, ticker=req.ticker, key=key).model_dump_json().encode(),
+        Payload=WorkerEvent(ticker=req.ticker, key=key).model_dump_json().encode(),
     )
     return Response(
         status_code=202,
         content_type=content_types.APPLICATION_JSON,
-        body=SubmitResponse(jobId=job_id, path="/" + key).model_dump_json(),
+        body=SubmitResponse(path="/" + key).model_dump_json(),
     )
 
 
