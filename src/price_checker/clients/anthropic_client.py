@@ -10,7 +10,7 @@ from price_checker.config import settings
 logger = Logger(child=True)
 
 MODEL = "claude-sonnet-4-6"
-RESOLVE_MODEL = "claude-haiku-4-5"
+RESOLVE_MODEL = "claude-opus-5-5"
 
 
 def _system(today: str) -> str:
@@ -46,15 +46,18 @@ class AnthropicClient:
         return self._client
 
     def resolve_ticker(self, query: str) -> str | None:
-        # Cheap, no-search lookup: map a ticker / company name / typo to one US ticker symbol.
+        # No-search lookup: map a ticker / company name / index / typo to one US ticker symbol.
+        # Thinking is always on for this model and counts toward max_tokens, so leave headroom.
         msg = self.client.messages.create(
             model=RESOLVE_MODEL,
-            max_tokens=16,
+            max_tokens=2000,
+            output_config={"effort": "low"},
             cache_control={"type": "ephemeral"},
             system=(
-                "Map the user's input to one US stock ticker symbol. The input may be a ticker, a company "
-                "name, or a misspelling. Reply with ONLY the uppercase ticker (e.g. BA), or NONE if it isn't "
-                "a real publicly-traded company."
+                "Map the user's input to one US-listed ticker symbol. The input may be a ticker, a company "
+                "name, a misspelling, or a market index / exchange. For an index or exchange, use the most "
+                "widely traded ETF that tracks it (e.g. Nasdaq -> QQQ, S&P 500 -> SPY, Dow -> DIA). "
+                "Reply with ONLY the uppercase ticker (e.g. BA), or NONE if nothing tradable matches."
             ),
             messages=[{"role": "user", "content": query}],
         )
@@ -65,6 +68,7 @@ class AnthropicClient:
             "ticker resolved",
             extra={
                 "query": query,
+                "reply": text,
                 "resolved": resolved,
                 "model": RESOLVE_MODEL,
                 "input_tokens": msg.usage.input_tokens,
