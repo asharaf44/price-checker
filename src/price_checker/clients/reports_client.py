@@ -5,7 +5,7 @@ import uuid
 import boto3
 
 from price_checker.config import settings
-from price_checker.models import Chat, HistoryItem, Level, Report
+from price_checker.models import Chat, HistoryItem, Report
 
 PREFIX = "reports/"
 _KEY_RE = re.compile(rf"{PREFIX}([A-Za-z0-9.]+)__[0-9a-f]+\.json")
@@ -53,7 +53,7 @@ class ReportsClient:
             ContentType="application/json",
         )
 
-    def latest_completed(self, ticker: str, level: Level) -> tuple[str, int] | None:
+    def latest_completed(self, ticker: str) -> tuple[str, int] | None:
         objects = self._s3.list_objects_v2(Bucket=settings.reports_bucket, Prefix=f"{PREFIX}{ticker}__").get(
             "Contents", []
         )
@@ -62,7 +62,7 @@ class ReportsClient:
                 data = json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=obj["Key"])["Body"].read())
             except Exception:
                 continue
-            if data.get("status") == "COMPLETED" and data.get("explanation") and data.get("level", Level.KID) == level:
+            if data.get("status") == "COMPLETED" and data.get("explanation"):
                 return json.dumps(data["explanation"]), data.get("createdAt", 0)
         return None
 

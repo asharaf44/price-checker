@@ -34,17 +34,17 @@ def test_unknown_route_404():
 
 
 def test_rejects_unknown_level():
-    response = app.resolve(_event(body='{"ticker": "AAPL", "level": "expert"}'), None)
+    body = '{"path": "/reports/AAPL__abc.json", "question": "Why?", "level": "expert"}'
+    response = app.resolve(_event(body=body), None)
     assert response["statusCode"] == 400
 
 
-def test_system_prompt_audience():
-    assert "for a curious 10-year-old." in _system(Level.KID)
-    assert "for an experienced investor." in _system(Level.PRO)
+def test_research_is_written_for_pros():
+    assert "for an experienced investor." in _system()
 
 
 def test_worker_records_search_progress(monkeypatch):
-    def generate_report(ticker, level, prior, on_search, prices):
+    def generate_report(ticker, prior, on_search, prices):
         on_search("DDOG earnings")
         on_search("DDOG earnings")
         return Explanation(
@@ -53,6 +53,7 @@ def test_worker_records_search_progress(monkeypatch):
 
     puts = []
     monkeypatch.setattr(app_module.anthropic_client, "generate_report", generate_report)
+    monkeypatch.setattr(app_module.anthropic_client, "simplify", lambda explanation, level: explanation)
     monkeypatch.setattr(app_module, "fetch_prices", lambda ticker: [])
     monkeypatch.setattr(app_module.reports, "put", lambda key, report: puts.append(report.model_copy(deep=True)))
 
@@ -60,8 +61,10 @@ def test_worker_records_search_progress(monkeypatch):
 
     assert [(r.status, r.progress) for r in puts] == [
         ("PENDING", ["Searching: DDOG earnings"]),
+        ("PENDING", ["Searching: DDOG earnings", "Writing the Beginner and Kid versions"]),
         ("COMPLETED", []),
     ]
+    assert list(puts[-1].versions) == [Level.BEGINNER, Level.KID]
 
 
 @pytest.mark.parametrize("known", [True, False])
@@ -96,7 +99,7 @@ def test_follow_up_answers_from_report(monkeypatch):
     assert response["statusCode"] == 200
     assert json.loads(response["body"]) == {"answer": "Because of earnings."}
     reports.get.assert_called_once_with("reports/DDOG__abc123.json")
-    client.answer_follow_up.assert_called_once_with("DDOG", Level.KID, "It went up.", [], "What's guidance?")
+    client.answer_follow_up.assert_called_once_with("DDOG", Level.PRO, "It went up.", [], "What's guidance?")
     reports.put_chat.assert_called_once_with(
         "reports/DDOG__abc123.json", Chat(turns=[Turn(question="What's guidance?", answer="Because of earnings.")])
     )

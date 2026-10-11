@@ -1,10 +1,11 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from price_checker.clients.anthropic_client import AnthropicClient
-from price_checker.models import Level, Price, Turn
+from price_checker.models import Explanation, Level, Price, Turn
 
 EXPLANATION = {
     "direction": "down",
@@ -43,7 +44,7 @@ def test_generate_report_resumes_pause_turn_and_parses_submitted_report():
         _response("tool_use", [SimpleNamespace(type="tool_use", input=EXPLANATION)]),
     )
 
-    explanation = client.generate_report("BA", Level.KID, ('{"summary": "old"}', 0), lambda q: None, [])
+    explanation = client.generate_report("BA", ('{"summary": "old"}', 0), lambda q: None, [])
 
     assert explanation.direction == "down"
     assert explanation.reasons[0].sources == [0]
@@ -58,7 +59,7 @@ def test_generate_report_fails_without_submission():
     client = _client(_response("end_turn", [SimpleNamespace(type="text", text="no tool call")]))
 
     with pytest.raises(RuntimeError):
-        client.generate_report("BA", Level.KID, None, lambda q: None, [])
+        client.generate_report("BA", None, lambda q: None, [])
 
 
 def test_follow_up_sends_prior_turns_as_history():
@@ -81,7 +82,7 @@ def test_generate_report_uses_real_prices_for_the_move():
     closes = [(2, 100), (5, 102), (6, 101), (7, 103), (8, 99), (9, 104)]
     prices = [Price(date=f"2026-10-0{d}", close=c) for d, c in closes]
 
-    explanation = client.generate_report("BA", Level.KID, None, lambda q: None, prices)
+    explanation = client.generate_report("BA", None, lambda q: None, prices)
 
     assert (explanation.direction, explanation.pctMove) == ("up", 4.0)
     user = client._client.messages.stream.call_args.kwargs["messages"][0]["content"]
@@ -95,3 +96,18 @@ def test_resolve_ticker_reads_structured_symbol(reply, expected):
     client._client = MagicMock()
     client._client.messages.create.return_value = _response("end_turn", [SimpleNamespace(type="text", text=reply)])
     assert client.resolve_ticker("berkshire") == expected
+
+
+def test_simplify_rewrites_wording_but_keeps_the_move_and_sources():
+    rewrite = {**EXPLANATION, "direction": "up", "pctMove": 9.9, "sources": [], "summary": "Shares went down."}
+    client = AnthropicClient()
+    client._client = MagicMock()
+    client._client.messages.create.return_value = _response(
+        "end_turn", [SimpleNamespace(type="text", text=json.dumps(rewrite))]
+    )
+
+    simple = client.simplify(Explanation.model_validate(EXPLANATION), Level.KID)
+
+    assert simple.summary == "Shares went down."
+    assert (simple.direction, simple.pctMove, simple.sources) == ("down", -4.2, EXPLANATION["sources"])
+    assert "a curious 10-year-old" in client._client.messages.create.call_args.kwargs["system"]

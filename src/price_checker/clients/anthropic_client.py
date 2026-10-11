@@ -49,9 +49,9 @@ SUBMIT_TOOL = {
 SUBMIT_TOOL["input_schema"]["$defs"]["Reason"]["required"].append("tickers")
 
 
-def _system(level: Level) -> str:
+def _system() -> str:
     return (
-        f"You explain why a stock or market index moved, for {AUDIENCE[level]}. {STYLE[level]}\n\n"
+        f"You explain why a stock or market index moved, for {AUDIENCE[Level.PRO]}. {STYLE[Level.PRO]}\n\n"
         "The user message gives recent daily closing prices from Yahoo Finance. They are the facts about how "
         "much it moved and when: explain the move over the trading days shown, focusing on the days it names. "
         "Don't state a price or % move for it that the table doesn't support; if an article's numbers disagree "
@@ -157,10 +157,37 @@ class AnthropicClient:
             return "Sorry, I can't help with that question."
         return "".join(b.text for b in msg.content if b.type == "text")
 
+    def simplify(self, explanation: Explanation, level: Level) -> Explanation:
+        # No search: rewrite the researched explanation for a simpler audience, same JSON shape.
+        msg = self.client.messages.create(
+            model=MODEL,
+            max_tokens=8000,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SUBMIT_TOOL["input_schema"]}},
+            system=(
+                f"Rewrite this stock-move explanation for {AUDIENCE[level]}. {STYLE[level]} Keep every fact, number, "
+                "date, ticker and source index the same; change only the wording, the length, and the terms. Never "
+                "tell anyone to buy or sell, and don't add a not-financial-advice disclaimer."
+            ),
+            messages=[{"role": "user", "content": explanation.model_dump_json()}],
+        )
+        logger.info(
+            "report simplified",
+            extra={
+                "level": level,
+                "model": MODEL,
+                "input_tokens": msg.usage.input_tokens,
+                "output_tokens": msg.usage.output_tokens,
+            },
+        )
+        simple = Explanation.model_validate_json("".join(b.text for b in msg.content if b.type == "text"))
+        # The move and sources come from the researched version, not the rewrite.
+        return simple.model_copy(
+            update={"direction": explanation.direction, "pctMove": explanation.pctMove, "sources": explanation.sources}
+        )
+
     def generate_report(
         self,
         ticker: str,
-        level: Level,
         prior: tuple[str, int] | None,
         on_search: Callable[[str], None],
         prices: list[Price],
@@ -195,7 +222,7 @@ class AnthropicClient:
             user = f"Today is {today}. Why did {name} move?{focus}{facts}"
             max_uses = 8
 
-        system = _system(level)
+        system = _system()
         # The basic search tool: in live tests the dynamic-filtering web_search_20260209 often sent malformed
         # searches that failed and used up max_uses, leaving reports without causes.
         tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses}, SUBMIT_TOOL]
@@ -234,7 +261,6 @@ class AnthropicClient:
             "report generated",
             extra={
                 "ticker": ticker,
-                "level": level,
                 "model": MODEL,
                 "incremental": prior is not None,
                 "max_uses": max_uses,

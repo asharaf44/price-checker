@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -16,6 +17,7 @@ from price_checker.models import (
     FollowUpRequest,
     FollowUpResponse,
     HistoryResponse,
+    Level,
     Report,
     SubmitRequest,
     SubmitResponse,
@@ -54,11 +56,11 @@ def submit() -> Response:
         raise BadRequestError(f"Couldn't find a stock ticker for '{req.ticker}'.")
 
     key = reports.key_for(ticker)
-    reports.put(key, Report(status="PENDING", ticker=ticker, createdAt=int(time.time()), level=req.level))
+    reports.put(key, Report(status="PENDING", ticker=ticker, createdAt=int(time.time())))
     lambda_client.invoke(
         FunctionName=app.lambda_context.invoked_function_arn,
         InvocationType="Event",
-        Payload=WorkerEvent(ticker=ticker, key=key, force=req.force, level=req.level).model_dump_json().encode(),
+        Payload=WorkerEvent(ticker=ticker, key=key, force=req.force).model_dump_json().encode(),
     )
     return Response(
         status_code=202,
@@ -76,7 +78,7 @@ def follow_up(req: FollowUpRequest) -> Response:
     if not text:
         raise BadRequestError("That report isn't ready yet.")
     chat = reports.get_chat(key)
-    answer = anthropic_client.answer_follow_up(report.ticker, report.level, text, chat.turns, req.question)
+    answer = anthropic_client.answer_follow_up(report.ticker, req.level, text, chat.turns, req.question)
     reports.put_chat(key, Chat(turns=[*chat.turns, Turn(question=req.question, answer=answer)]))
     return Response(
         status_code=200,
@@ -101,31 +103,31 @@ def handler(event: dict, context: LambdaContext):
 def worker_handler(event: dict) -> None:
     job = WorkerEvent.model_validate(event)
     try:
-        prior = None if job.force else reports.latest_completed(job.ticker, job.level)
+        prior = None if job.force else reports.latest_completed(job.ticker)
         progress: list[str] = []
 
-        def on_search(query: str) -> None:
-            step = f"Searching: {query}"
+        def add_step(step: str) -> None:
             if step in progress:
                 return
             progress.append(step)
-            reports.put(
-                job.key,
-                Report(
-                    status="PENDING", ticker=job.ticker, createdAt=int(time.time()), level=job.level, progress=progress
-                ),
-            )
+            pending = Report(status="PENDING", ticker=job.ticker, createdAt=int(time.time()), progress=progress)
+            reports.put(job.key, pending)
 
         prices = fetch_prices(job.ticker)
-        explanation = anthropic_client.generate_report(job.ticker, job.level, prior, on_search, prices)
+        explanation = anthropic_client.generate_report(job.ticker, prior, lambda q: add_step(f"Searching: {q}"), prices)
+        # Research once at the pro level, then rewrite it simpler in parallel; the facts stay the same.
+        add_step("Writing the Beginner and Kid versions")
+        simpler = [Level.BEGINNER, Level.KID]
+        with ThreadPoolExecutor() as pool:
+            versions = dict(zip(simpler, pool.map(lambda lvl: anthropic_client.simplify(explanation, lvl), simpler)))
         reports.put(
             job.key,
             Report(
                 status="COMPLETED",
                 ticker=job.ticker,
                 createdAt=int(time.time()),
-                level=job.level,
                 explanation=explanation,
+                versions=versions,
                 prices=prices,
                 changesSince=prior[1] if prior else None,
             ),

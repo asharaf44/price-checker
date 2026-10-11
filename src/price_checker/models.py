@@ -25,7 +25,7 @@ class Level(StrEnum):
 
 
 class Reason(BaseModel):
-    title: str
+    title: str = Field(description="Short headline, without the date")
     detail: str
     date: str | None = Field(description="Trading day (YYYY-MM-DD) whose move this reason explains, or null")
     sources: list[int] = Field(description="Indexes into the top-level sources list")
@@ -57,9 +57,10 @@ class Report(BaseModel):
     status: str
     ticker: Ticker
     createdAt: int
-    level: Level = Level.KID
     report: str | None = None
     explanation: Explanation | None = None
+    # Simpler rewrites of the (pro) explanation, same facts.
+    versions: dict[Level, Explanation] = {}
     progress: list[str] = []
     prices: list[Price] = []
     changesSince: int | None = None
@@ -78,14 +79,12 @@ class WorkerEvent(BaseModel):
     ticker: Ticker
     key: str
     force: bool = False
-    level: Level = Level.KID
 
 
 class SubmitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")  # keeps it distinct from FeedbackRequest on the shared POST /api
     ticker: Query
     force: bool = False
-    level: Level = Level.KID
 
 
 class FeedbackRequest(BaseModel):
@@ -102,6 +101,7 @@ class SubmitResponse(BaseModel):
 class FollowUpRequest(BaseModel):
     path: Annotated[str, StringConstraints(pattern=r"^/reports/[A-Za-z0-9.]+__[0-9a-f]+\.json$")]
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    level: Level = Level.PRO
 
 
 class FollowUpResponse(BaseModel):
