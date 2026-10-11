@@ -7,8 +7,8 @@ import anthropic
 import boto3
 from aws_lambda_powertools import Logger
 
-from price_checker.config import settings
 from price_checker.clients.prices_client import recent_moves
+from price_checker.config import settings
 from price_checker.models import INDEXES, Explanation, Level, Price, Turn
 
 logger = Logger(child=True)
@@ -73,10 +73,8 @@ class AnthropicClient:
     @property
     def client(self) -> anthropic.Anthropic:
         if self._client is None:
-            key = boto3.client("secretsmanager").get_secret_value(SecretId=settings.anthropic_secret_arn)[
-                "SecretString"
-            ]
-            self._client = anthropic.Anthropic(api_key=key)
+            param = boto3.client("ssm").get_parameter(Name=settings.anthropic_param_name, WithDecryption=True)
+            self._client = anthropic.Anthropic(api_key=param["Parameter"]["Value"])
         return self._client
 
     def resolve_ticker(self, query: str) -> str | None:
