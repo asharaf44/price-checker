@@ -5,10 +5,14 @@ import uuid
 import boto3
 
 from price_checker.config import settings
-from price_checker.models import HistoryItem, Report
+from price_checker.models import Chat, HistoryItem, Level, Report
 
 PREFIX = "reports/"
 _KEY_RE = re.compile(rf"{PREFIX}([A-Za-z0-9.]+)__[0-9a-f]+\.json")
+
+
+def _chat_key(key: str) -> str:
+    return key.removesuffix(".json") + ".chat.json"
 
 
 class ReportsClient:
@@ -26,7 +30,30 @@ class ReportsClient:
             ContentType="application/json",
         )
 
-    def latest_completed(self, ticker: str) -> tuple[str, int] | None:
+    def exists(self, ticker: str) -> bool:
+        res = self._s3.list_objects_v2(Bucket=settings.reports_bucket, Prefix=f"{PREFIX}{ticker}__", MaxKeys=1)
+        return res["KeyCount"] > 0
+
+    def get(self, key: str) -> Report:
+        return Report.model_validate_json(self._s3.get_object(Bucket=settings.reports_bucket, Key=key)["Body"].read())
+
+    # A report's follow-up chat lives beside it (not matched by _KEY_RE, so it stays out of history).
+    def get_chat(self, key: str) -> Chat:
+        try:
+            body = self._s3.get_object(Bucket=settings.reports_bucket, Key=_chat_key(key))["Body"].read()
+        except self._s3.exceptions.NoSuchKey:
+            return Chat()
+        return Chat.model_validate_json(body)
+
+    def put_chat(self, key: str, chat: Chat) -> None:
+        self._s3.put_object(
+            Bucket=settings.reports_bucket,
+            Key=_chat_key(key),
+            Body=chat.model_dump_json().encode(),
+            ContentType="application/json",
+        )
+
+    def latest_completed(self, ticker: str, level: Level) -> tuple[str, int] | None:
         objects = self._s3.list_objects_v2(Bucket=settings.reports_bucket, Prefix=f"{PREFIX}{ticker}__").get(
             "Contents", []
         )
@@ -35,8 +62,8 @@ class ReportsClient:
                 data = json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=obj["Key"])["Body"].read())
             except Exception:
                 continue
-            if data.get("status") == "COMPLETED" and data.get("report"):
-                return data["report"], data.get("createdAt", 0)
+            if data.get("status") == "COMPLETED" and data.get("explanation") and data.get("level", Level.KID) == level:
+                return json.dumps(data["explanation"]), data.get("createdAt", 0)
         return None
 
     def _meta(self, key: str) -> tuple[str, str | None]:
