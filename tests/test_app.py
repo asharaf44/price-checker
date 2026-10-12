@@ -7,7 +7,7 @@ import pytest
 from price_checker import app as app_module
 from price_checker.app import app, worker_handler
 from price_checker.clients.anthropic_client import _system
-from price_checker.models import Chat, Explanation, Level, Report, Turn
+from price_checker.models import Chat, Explanation, Level, Quote, Report, Turn
 
 
 def _event(method="POST", path="/api", body=None):
@@ -122,3 +122,10 @@ def test_invalid_feedback_rejected():
     body = '{"ticker": "AAPL", "path": "/reports/AAPL__abc.json", "rating": "meh"}'
     response = app.resolve(_event(body=body), None)
     assert response["statusCode"] == 400
+
+
+def test_quote(monkeypatch):
+    monkeypatch.setattr(app_module, "fetch_quote", lambda t: Quote(price=293.26, previousClose=273.8, index=False))
+    response = app.resolve(_event(body='{"quote": "ddog"}'), None)
+    assert response["statusCode"] == 200
+    assert json.loads(response["body"]) == {"price": 293.26, "previousClose": 273.8, "index": False}

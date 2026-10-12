@@ -9,7 +9,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from pydantic import TypeAdapter, ValidationError
 
 from price_checker.clients.anthropic_client import AnthropicClient
-from price_checker.clients.prices_client import fetch_prices, recent_moves
+from price_checker.clients.prices_client import fetch_prices, fetch_quote, recent_moves
 from price_checker.clients.reports_client import ReportsClient
 from price_checker.models import (
     Chat,
@@ -18,6 +18,7 @@ from price_checker.models import (
     FollowUpResponse,
     HistoryResponse,
     Level,
+    QuoteRequest,
     Report,
     SubmitRequest,
     SubmitResponse,
@@ -32,8 +33,8 @@ app = LambdaFunctionUrlResolver()
 lambda_client = boto3.client("lambda")
 anthropic_client = AnthropicClient()
 reports = ReportsClient()
-# Feedback and follow-ups share POST /api, the only path CloudFront routes to the Lambda.
-api_request = TypeAdapter(SubmitRequest | FollowUpRequest | FeedbackRequest)
+# Follow-ups, feedback and quotes share POST /api, the only path CloudFront routes to the Lambda.
+api_request = TypeAdapter(SubmitRequest | FollowUpRequest | FeedbackRequest | QuoteRequest)
 
 
 @app.post("/api")
@@ -48,6 +49,9 @@ def submit() -> Response:
     if isinstance(req, FeedbackRequest):
         logger.info("report feedback", extra=req.model_dump())
         return Response(status_code=204)
+    if isinstance(req, QuoteRequest):
+        quote = fetch_quote(req.quote)
+        return Response(status_code=200, content_type=content_types.APPLICATION_JSON, body=quote.model_dump_json())
 
     # A ticker we've already reported on was resolved before, so skip the Opus lookup.
     query = req.ticker.upper()

@@ -4,21 +4,34 @@ from datetime import datetime, timezone
 
 from aws_lambda_powertools import Logger
 
-from price_checker.models import INDEXES, Price
+from price_checker.models import INDEXES, Price, Quote
 
 logger = Logger(child=True)
 
-URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}?range=1mo&interval=1d"
+URL = "https://query1.finance.yahoo.com/v8/finance/chart/{}?range={}&interval=1d"
+
+
+def _chart(ticker: str, period: str) -> dict:
+    # Yahoo spells share classes with a dash (BRK-B) and indexes with a caret (^IXIC).
+    symbol = f"%5E{ticker}" if ticker in INDEXES else ticker.replace(".", "-")
+    req = urllib.request.Request(URL.format(symbol, period), headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=10) as res:
+        return json.load(res)["chart"]["result"][0]
+
+
+def fetch_quote(ticker: str) -> Quote:
+    meta = _chart(ticker, "1d")["meta"]
+    return Quote(
+        price=meta["regularMarketPrice"],
+        previousClose=meta["chartPreviousClose"],
+        index=meta["instrumentType"] == "INDEX",
+    )
 
 
 def fetch_prices(ticker: str) -> list[Price]:
     # Best-effort: a missing chart shouldn't fail the report.
     try:
-        # Yahoo spells share classes with a dash (BRK-B) and indexes with a caret (^IXIC).
-        symbol = f"%5E{ticker}" if ticker in INDEXES else ticker.replace(".", "-")
-        req = urllib.request.Request(URL.format(symbol), headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as res:
-            result = json.load(res)["chart"]["result"][0]
+        result = _chart(ticker, "1mo")
         closes = result["indicators"]["quote"][0]["close"]
         return [
             Price(date=datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d"), close=round(close, 2))

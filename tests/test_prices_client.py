@@ -2,7 +2,7 @@ import io
 import json
 from unittest.mock import patch
 
-from price_checker.clients.prices_client import fetch_prices
+from price_checker.clients.prices_client import fetch_prices, fetch_quote
 
 CHART = {
     "chart": {
@@ -37,3 +37,12 @@ def test_fetch_prices_uses_dash_for_share_classes():
 def test_fetch_prices_failure_returns_empty():
     with patch("urllib.request.urlopen", side_effect=OSError("down")):
         assert fetch_prices("AAPL") == []
+
+
+def test_fetch_quote_reads_price_and_previous_close():
+    meta = {"regularMarketPrice": 27366.17, "chartPreviousClose": 27193.34, "instrumentType": "INDEX"}
+    chart = {"chart": {"result": [{"meta": meta}]}}
+    with patch("urllib.request.urlopen", return_value=io.BytesIO(json.dumps(chart).encode())) as urlopen:
+        quote = fetch_quote("IXIC")
+    assert (quote.price, quote.previousClose, quote.index) == (27366.17, 27193.34, True)
+    assert "/chart/%5EIXIC?range=1d" in urlopen.call_args.args[0].full_url

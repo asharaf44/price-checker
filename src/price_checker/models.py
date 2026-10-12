@@ -108,6 +108,16 @@ class FollowUpResponse(BaseModel):
     answer: str
 
 
+class QuoteRequest(BaseModel):
+    quote: Ticker
+
+
+class Quote(BaseModel):
+    price: float
+    previousClose: float
+    index: bool
+
+
 class Turn(BaseModel):
     question: str
     answer: str
