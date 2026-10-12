@@ -127,5 +127,10 @@ class Chat(BaseModel):
     turns: list[Turn] = []
 
 
+class PinsRequest(BaseModel):
+    pins: list[Ticker]
+
+
 class HistoryResponse(BaseModel):
     reports: list[HistoryItem]
+    pins: list[str]

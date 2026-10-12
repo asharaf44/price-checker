@@ -129,3 +129,17 @@ def test_quote(monkeypatch):
     response = app.resolve(_event(body='{"quote": "ddog"}'), None)
     assert response["statusCode"] == 200
     assert json.loads(response["body"]) == {"price": 293.26, "previousClose": 273.8, "index": False}
+
+
+def test_pins_saved_and_listed(monkeypatch):
+    reports = MagicMock()
+    reports.list_history.return_value = []
+    reports.get_pins.return_value = ["DDOG"]
+    monkeypatch.setattr(app_module, "reports", reports)
+
+    response = app.resolve(_event(body='{"pins": ["ddog", "tsla"]}'), None)
+    assert response["statusCode"] == 204
+    reports.put_pins.assert_called_once_with(["DDOG", "TSLA"])
+
+    response = app.resolve(_event(method="GET"), None)
+    assert json.loads(response["body"]) == {"reports": [], "pins": ["DDOG"]}

@@ -8,6 +8,7 @@ from price_checker.config import settings
 from price_checker.models import Chat, HistoryItem, Report
 
 PREFIX = "reports/"
+PINS_KEY = "watchlist.json"  # outside reports/, so the 90-day lifecycle rule doesn't expire it
 _KEY_RE = re.compile(rf"{PREFIX}([A-Za-z0-9.]+)__[0-9a-f]+\.json")
 
 
@@ -36,6 +37,17 @@ class ReportsClient:
 
     def get(self, key: str) -> Report:
         return Report.model_validate_json(self._s3.get_object(Bucket=settings.reports_bucket, Key=key)["Body"].read())
+
+    def get_pins(self) -> list[str]:
+        try:
+            return json.loads(self._s3.get_object(Bucket=settings.reports_bucket, Key=PINS_KEY)["Body"].read())
+        except self._s3.exceptions.NoSuchKey:
+            return []
+
+    def put_pins(self, pins: list[str]) -> None:
+        self._s3.put_object(
+            Bucket=settings.reports_bucket, Key=PINS_KEY, Body=json.dumps(pins).encode(), ContentType="application/json"
+        )
 
     # A report's follow-up chat lives beside it (not matched by _KEY_RE, so it stays out of history).
     def get_chat(self, key: str) -> Chat:

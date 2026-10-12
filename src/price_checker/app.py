@@ -18,6 +18,7 @@ from price_checker.models import (
     FollowUpResponse,
     HistoryResponse,
     Level,
+    PinsRequest,
     QuoteRequest,
     Report,
     SubmitRequest,
@@ -33,8 +34,8 @@ app = LambdaFunctionUrlResolver()
 lambda_client = boto3.client("lambda")
 anthropic_client = AnthropicClient()
 reports = ReportsClient()
-# Follow-ups, feedback and quotes share POST /api, the only path CloudFront routes to the Lambda.
-api_request = TypeAdapter(SubmitRequest | FollowUpRequest | FeedbackRequest | QuoteRequest)
+# Follow-ups, feedback, quotes and pins share POST /api, the only path CloudFront routes to the Lambda.
+api_request = TypeAdapter(SubmitRequest | FollowUpRequest | FeedbackRequest | QuoteRequest | PinsRequest)
 
 
 @app.post("/api")
@@ -52,6 +53,9 @@ def submit() -> Response:
     if isinstance(req, QuoteRequest):
         quote = fetch_quote(req.quote)
         return Response(status_code=200, content_type=content_types.APPLICATION_JSON, body=quote.model_dump_json())
+    if isinstance(req, PinsRequest):
+        reports.put_pins(req.pins)
+        return Response(status_code=204)
 
     # A ticker we've already reported on was resolved before, so skip the Opus lookup.
     query = req.ticker.upper()
@@ -93,7 +97,7 @@ def follow_up(req: FollowUpRequest) -> Response:
 
 @app.get("/api")
 def history() -> dict:
-    return HistoryResponse(reports=reports.list_history()).model_dump(mode="json")
+    return HistoryResponse(reports=reports.list_history(), pins=reports.get_pins()).model_dump(mode="json")
 
 
 @logger.inject_lambda_context
